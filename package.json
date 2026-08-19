@@ -1,0 +1,21 @@
+{
+  "name": "bgm-session-deck",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "TRPG 세션용 실시간 동기화 BGM 플레이어 (GM/참가자 룸, 유튜브 재생목록)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "firebase": "^10.12.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  }
+}
