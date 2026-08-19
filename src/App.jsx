@@ -29,7 +29,11 @@ function extractVideoId(url) {
   return null;
 }
 
-async function fetchTitle(videoId) {
+function thumbnailUrl(videoId) {
+  return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+}
+
+async function fetchYoutubeMeta(videoId) {
   try {
     const res = await fetch(
       `https://www.youtube.com/oembed?url=${encodeURIComponent(
@@ -38,9 +42,9 @@ async function fetchTitle(videoId) {
     );
     if (!res.ok) throw new Error("oembed failed");
     const data = await res.json();
-    return data.title || null;
+    return { title: data.title || null, channel: data.author_name || null };
   } catch (e) {
-    return null;
+    return { title: null, channel: null };
   }
 }
 
@@ -49,6 +53,39 @@ function formatTime(sec) {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/* 트랙을 특정 폴더의 특정 위치(targetId 앞)로 옮긴다. targetId가 없으면 그 폴더 맨 뒤에 붙인다. */
+function moveTrack(tracks, sourceId, targetFolderId, targetId) {
+  const arr = [...tracks];
+  const fromIdx = arr.findIndex((t) => t.id === sourceId);
+  if (fromIdx < 0) return arr;
+  const [moved] = arr.splice(fromIdx, 1);
+  const movedCopy = { ...moved, folderId: targetFolderId || null };
+  if (targetId) {
+    let toIdx = arr.findIndex((t) => t.id === targetId);
+    if (toIdx < 0) toIdx = arr.length;
+    arr.splice(toIdx, 0, movedCopy);
+  } else {
+    let lastIdx = -1;
+    arr.forEach((t, i) => {
+      if ((t.folderId || null) === (targetFolderId || null)) lastIdx = i;
+    });
+    if (lastIdx === -1) arr.unshift(movedCopy);
+    else arr.splice(lastIdx + 1, 0, movedCopy);
+  }
+  return arr;
+}
+
+function moveFolder(folders, sourceId, targetId) {
+  const arr = [...folders];
+  const from = arr.findIndex((f) => f.id === sourceId);
+  if (from < 0) return arr;
+  const [moved] = arr.splice(from, 1);
+  let to = arr.findIndex((f) => f.id === targetId);
+  if (to < 0) to = arr.length;
+  arr.splice(to, 0, moved);
+  return arr;
 }
 
 /* ============================================================
@@ -114,6 +151,7 @@ function initialRoomState(name) {
       positionSec: 0,
       positionAtMs: Date.now(),
       loopMode: "none", // 'none' | 'repeatOne' | 'repeatAll'
+      scopeFolderId: null, // null = 전체 재생목록, 값 있으면 해당 폴더만 순환
     },
     version: Date.now(),
   };
@@ -204,6 +242,7 @@ function GlobalStyle() {
       .bgm-app .btn-danger { color: #D98466; border-color: #4A2A1E; }
       .bgm-app .btn-danger:hover { background: #2A180F; border-color: var(--ember); }
       .bgm-app .btn-icon { padding: 8px; }
+      .bgm-app .btn-tiny { font-size: 11px; padding: 4px 7px; border-radius: 6px; }
 
       .bgm-app .input, .bgm-app select.input {
         font-family: 'Inter', sans-serif;
@@ -241,17 +280,68 @@ function GlobalStyle() {
       .bgm-app .scrollarea::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
       .bgm-app .scrollarea::-webkit-scrollbar-thumb:hover { background: var(--brass); }
 
+      /* 폴더 아코디언 */
+      .bgm-app .folder-section {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+        margin-bottom: 10px;
+        overflow: hidden;
+        transition: border-color .15s;
+      }
+      .bgm-app .folder-section.drop-target { border-color: var(--brass); }
+      .bgm-app .folder-header {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 10px;
+        background: var(--bg-elevated);
+        cursor: pointer;
+      }
+      .bgm-app .folder-header .folder-name {
+        flex: 1; font-size: 13.5px; font-weight: 700; min-width: 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .bgm-app .folder-body { padding: 8px; }
+      .bgm-app .folder-chevron { color: var(--text-faint); font-size: 11px; width: 12px; text-align: center; flex-shrink: 0; }
+
       .bgm-app .track-row {
+        display: flex; gap: 8px; align-items: flex-start;
         border: 1px solid var(--border);
         background: var(--bg-elevated);
         border-radius: 10px;
+        padding: 8px;
+        margin-bottom: 6px;
         transition: border-color .15s, background .15s, opacity .15s;
       }
       .bgm-app .track-row:hover { border-color: var(--brass); }
       .bgm-app .track-row.active { border-color: var(--brass); background: #2A2213; }
-      .bgm-app .track-row.dragging { opacity: .35; }
-      .bgm-app .drag-handle { cursor: grab; color: var(--text-faint); }
+      .bgm-app .track-row.dragging { opacity: .3; }
+      .bgm-app .drag-handle { cursor: grab; color: var(--text-faint); font-size: 12px; flex-shrink: 0; padding-top: 2px; }
       .bgm-app .drag-handle:active { cursor: grabbing; }
+
+      .bgm-app .track-thumb {
+        position: relative; flex-shrink: 0; width: 64px; height: 42px;
+        border-radius: 6px; overflow: hidden; background: #000; cursor: pointer;
+      }
+      .bgm-app .track-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: .85; }
+      .bgm-app .track-thumb:hover img { opacity: 1; }
+      .bgm-app .track-thumb .play-badge {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 14px; text-shadow: 0 1px 4px rgba(0,0,0,.7);
+        background: rgba(0,0,0,0); transition: background .15s;
+      }
+      .bgm-app .track-thumb:hover .play-badge { background: rgba(0,0,0,.25); }
+
+      .bgm-app .track-title {
+        font-size: 12.5px; font-weight: 600; line-height: 1.35;
+        overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
+        -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      }
+      .bgm-app .track-channel { font-size: 10.5px; color: var(--text-faint); margin-top: 1px; }
+      .bgm-app .track-desc { font-size: 11px; color: var(--brass-bright); font-style: italic; margin-top: 2px; }
+
+      .bgm-app .track-more-panel {
+        margin-top: 8px; padding: 8px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);
+      }
 
       .bgm-app .folder-chip {
         font-size: 12px;
@@ -561,7 +651,7 @@ function AbLoopPanel({ track, isCurrent, getLiveTime, onChange }) {
   }
 
   return (
-    <div style={{ padding: "10px 12px", background: "var(--bg-elevated)", borderRadius: 8, marginTop: 8 }}>
+    <div style={{ padding: "10px 10px", background: "var(--bg-elevated)", borderRadius: 8, marginTop: 8 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-dim)" }}>
           <input
@@ -590,8 +680,7 @@ function AbLoopPanel({ track, isCurrent, getLiveTime, onChange }) {
             />
             {isCurrent && (
               <button
-                className="btn btn-ghost"
-                style={{ fontSize: 11, padding: "6px 8px" }}
+                className="btn btn-ghost btn-tiny"
                 onClick={() => {
                   const t = Math.floor(getLiveTime());
                   setStart(t);
@@ -617,8 +706,7 @@ function AbLoopPanel({ track, isCurrent, getLiveTime, onChange }) {
             />
             {isCurrent && (
               <button
-                className="btn btn-ghost"
-                style={{ fontSize: 11, padding: "6px 8px" }}
+                className="btn btn-ghost btn-tiny"
                 onClick={() => {
                   const t = Math.floor(getLiveTime());
                   setEnd(t);
@@ -636,123 +724,267 @@ function AbLoopPanel({ track, isCurrent, getLiveTime, onChange }) {
 }
 
 /* ============================================================
-   트랙 행 (GM 전용 리스트)
+   트랙 행 (GM 전용, 썸네일 + 채널명 + 설명)
    ============================================================ */
 
-function TrackRow({
-  track,
-  isCurrent,
-  isPlaying,
-  folders,
-  draggable,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  dragging,
-  onPlay,
-  onUpdate,
-  onDelete,
-  getLiveTime,
-}) {
-  const [editingDesc, setEditingDesc] = useState(false);
+function TrackRowWithPanel(props) {
+  const { track, folders, onUpdate, onDelete, isCurrent, getLiveTime } = props;
+  const [open, setOpen] = useState(false);
   const [desc, setDesc] = useState(track.description || "");
-  const [showAb, setShowAb] = useState(false);
+  useEffect(() => setDesc(track.description || ""), [track.id]);
 
   return (
-    <div
-      className={"track-row" + (isCurrent ? " active" : "") + (dragging ? " dragging" : "")}
-      draggable={draggable}
-      onDragStart={(e) => onDragStart(e, track.id)}
-      onDragOver={onDragOver}
-      onDrop={(e) => onDrop(e, track.id)}
-      style={{ padding: 10, marginBottom: 8 }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {draggable && <span className="drag-handle" title="드래그해서 순서 변경">⠿</span>}
-        <button
-          className="btn btn-icon btn-ghost"
-          onClick={() => onPlay(track)}
-          title="이 트랙 재생"
-          style={{ fontSize: 13 }}
-        >
-          {isCurrent && isPlaying ? "❚❚" : "▶"}
-        </button>
+    <div style={{ marginBottom: 6 }}>
+      <div
+        className={"track-row" + (props.isCurrent ? " active" : "") + (props.dragging ? " dragging" : "")}
+        style={{ marginBottom: 0 }}
+        draggable
+        onDragStart={(e) => props.onDragStart(e, track.id)}
+        onDragOver={props.onDragOverRow}
+        onDrop={(e) => props.onDropOnRow(e, track.id)}
+      >
+        <span className="drag-handle" title="드래그해서 이동">⠿</span>
+        <div className="track-thumb" onClick={() => props.onPlay(track)} title="재생/일시정지">
+          <img src={thumbnailUrl(track.videoId)} alt="" loading="lazy" />
+          <div className="play-badge">{props.isCurrent && props.isPlaying ? "❚❚" : "▶"}</div>
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              color: isCurrent ? "var(--brass-bright)" : "var(--text)",
-            }}
-            title={track.title}
-          >
+          <div className="track-title" style={{ color: props.isCurrent ? "var(--brass-bright)" : "var(--text)" }} title={track.title}>
             {track.title}
           </div>
+          {track.channel && <div className="track-channel">{track.channel}</div>}
+          {track.description && <div className="track-desc">“{track.description}”</div>}
           {track.timestampLoop?.enabled && (
-            <div className="font-mono" style={{ fontSize: 10, color: "var(--text-faint)" }}>
+            <div className="font-mono" style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>
               구간반복 {formatTime(track.timestampLoop.start)}–{formatTime(track.timestampLoop.end)}
             </div>
           )}
         </div>
-        <select
-          className="input"
-          style={{ width: 100, fontSize: 11, padding: "5px 6px" }}
-          value={track.folderId || ""}
-          onChange={(e) => onUpdate(track.id, { folderId: e.target.value || null })}
-        >
-          <option value="">미분류</option>
-          {folders.map((f) => (
-            <option key={f.id} value={f.id}>{f.name}</option>
-          ))}
-        </select>
-        <button className="btn btn-ghost" style={{ fontSize: 11, padding: "5px 7px" }} onClick={() => setShowAb((v) => !v)}>
-          구간
-        </button>
-        <button className="btn btn-ghost" style={{ fontSize: 11, padding: "5px 7px" }} onClick={() => setEditingDesc((v) => !v)}>
-          설명
-        </button>
-        <button className="btn btn-ghost btn-danger" style={{ fontSize: 11, padding: "5px 7px" }} onClick={() => onDelete(track.id)}>
-          삭제
-        </button>
+        <button className="btn btn-ghost btn-tiny" onClick={() => setOpen((v) => !v)} title="자세히">⋯</button>
       </div>
 
-      {editingDesc && (
-        <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+      {open && (
+        <div className="track-more-panel">
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input
+              className="input"
+              style={{ fontSize: 12 }}
+              placeholder="설명 (예: 전투, 긴장감)"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              onBlur={() => onUpdate(track.id, { description: desc })}
+            />
+            <select
+              className="input"
+              style={{ width: 110, fontSize: 11 }}
+              value={track.folderId || ""}
+              onChange={(e) => onUpdate(track.id, { folderId: e.target.value || null })}
+            >
+              <option value="">미분류</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+            <button className="btn btn-ghost btn-danger btn-tiny" onClick={() => onDelete(track.id)}>삭제</button>
+          </div>
+          <AbLoopPanel
+            track={track}
+            isCurrent={isCurrent}
+            getLiveTime={getLiveTime}
+            onChange={(tl) => onUpdate(track.id, { timestampLoop: tl })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   폴더 섹션 (아코디언)
+   ============================================================ */
+
+function FolderSection({
+  folder, // null => 미분류
+  tracksInFolder,
+  allFolders,
+  collapsed,
+  onToggleCollapse,
+  isDropTarget,
+  currentTrackId,
+  isPlaying,
+  scopeFolderId,
+  onDragStart, // (e, type, id)
+  onDragOverAny,
+  onDropOnHeader, // (e, folderId)
+  onDropOnRow, // (e, folderId, targetTrackId)
+  draggingId,
+  onPlayTrack,
+  onPlayFolder,
+  onLoopFolder,
+  onRename,
+  onDelete,
+  onQuickAdd,
+  onUpdateTrack,
+  onDeleteTrack,
+  getLiveTime,
+}) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [addUrl, setAddUrl] = useState("");
+  const [addDesc, setAddDesc] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(folder ? folder.name : "");
+
+  const folderId = folder ? folder.id : null;
+
+  async function submitAdd(e) {
+    e.preventDefault();
+    setAdding(true);
+    await onQuickAdd(folderId, addUrl, addDesc);
+    setAddUrl("");
+    setAddDesc("");
+    setAdding(false);
+    setShowAdd(false);
+  }
+
+  return (
+    <div
+      className={"folder-section" + (isDropTarget ? " drop-target" : "")}
+      onDragOver={onDragOverAny}
+      onDrop={(e) => onDropOnHeader(e, folderId)}
+    >
+      <div
+        className="folder-header"
+        draggable={!!folder}
+        onDragStart={(e) => folder && onDragStart(e, "folder", folder.id)}
+        onClick={() => onToggleCollapse(folderId)}
+      >
+        {folder ? <span className="drag-handle" title="드래그해서 순서 변경" onClick={(e) => e.stopPropagation()}>⠿</span> : <span style={{ width: 12 }} />}
+        <span className="folder-chevron">{collapsed ? "▶" : "▼"}</span>
+
+        {renaming ? (
           <input
             className="input"
-            style={{ fontSize: 12 }}
-            placeholder="간단한 설명 (예: 전투, 긴장감)"
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
+            style={{ fontSize: 13, padding: "4px 8px", flex: 1 }}
+            autoFocus
+            value={nameDraft}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => {
+              setRenaming(false);
+              if (nameDraft.trim()) onRename(folder.id, nameDraft.trim());
+            }}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           />
-          <button
-            className="btn btn-brass"
-            style={{ fontSize: 11 }}
-            onClick={() => {
-              onUpdate(track.id, { description: desc });
-              setEditingDesc(false);
+        ) : (
+          <span
+            className="folder-name"
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (folder) setRenaming(true);
             }}
           >
-            저장
-          </button>
-        </div>
-      )}
-      {!editingDesc && track.description && (
-        <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--text-dim)", paddingLeft: 30 }}>
-          “{track.description}”
-        </div>
-      )}
+            {folder ? folder.name : "미분류"}
+            {scopeFolderId === folderId && <span style={{ color: "var(--brass-bright)", marginLeft: 6, fontSize: 11 }}>● 재생 범위</span>}
+          </span>
+        )}
 
-      {showAb && (
-        <AbLoopPanel
-          track={track}
-          isCurrent={isCurrent}
-          getLiveTime={getLiveTime}
-          onChange={(tl) => onUpdate(track.id, { timestampLoop: tl })}
-        />
+        <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{tracksInFolder.length}</span>
+
+        <button
+          className="btn btn-ghost btn-icon btn-tiny"
+          title="이 폴더에 트랙 추가"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowAdd((v) => !v);
+          }}
+        >
+          +
+        </button>
+        <button
+          className="btn btn-ghost btn-icon btn-tiny"
+          title="이 폴더 순서대로 재생"
+          disabled={tracksInFolder.length === 0}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPlayFolder(folderId, tracksInFolder);
+          }}
+        >
+          ▶
+        </button>
+        <button
+          className="btn btn-ghost btn-icon btn-tiny"
+          title="이 폴더 반복 재생"
+          disabled={tracksInFolder.length === 0}
+          onClick={(e) => {
+            e.stopPropagation();
+            onLoopFolder(folderId, tracksInFolder);
+          }}
+        >
+          ↻
+        </button>
+        {folder && (
+          <button
+            className="btn btn-ghost btn-danger btn-icon btn-tiny"
+            title="폴더 삭제"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(folder.id);
+            }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+
+      {!collapsed && (
+        <div className="folder-body">
+          {showAdd && (
+            <form onSubmit={submitAdd} style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              <input
+                className="input"
+                style={{ fontSize: 12 }}
+                placeholder="유튜브 링크"
+                value={addUrl}
+                onChange={(e) => setAddUrl(e.target.value)}
+              />
+              <input
+                className="input"
+                style={{ fontSize: 12 }}
+                placeholder="설명(선택)"
+                value={addDesc}
+                onChange={(e) => setAddDesc(e.target.value)}
+              />
+              <button className="btn btn-brass btn-tiny" type="submit" disabled={adding}>
+                {adding ? "추가 중" : "추가"}
+              </button>
+            </form>
+          )}
+
+          {tracksInFolder.length === 0 ? (
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", padding: "6px 4px" }}>
+              트랙을 드래그해 넣거나 위 + 버튼으로 추가하세요.
+            </div>
+          ) : (
+            tracksInFolder.map((t) => (
+              <TrackRowWithPanel
+                key={t.id}
+                track={t}
+                folders={allFolders}
+                isCurrent={currentTrackId === t.id}
+                isPlaying={isPlaying}
+                dragging={draggingId === t.id}
+                onDragStart={(e, id) => onDragStart(e, "track", id)}
+                onDragOverRow={onDragOverAny}
+                onDropOnRow={(e, targetId) => onDropOnRow(e, folderId, targetId)}
+                onPlay={onPlayTrack}
+                onUpdate={onUpdateTrack}
+                onDelete={onDeleteTrack}
+                getLiveTime={getLiveTime}
+              />
+            ))
+          )}
+        </div>
       )}
     </div>
   );
@@ -790,6 +1022,8 @@ function Room({ roomId, role, gmKey, onExit }) {
     (async () => {
       const remote = await getRoomState(roomId);
       const s = remote || initialRoomState("이름없는 세션");
+      if (!s.playback) s.playback = initialRoomState("").playback;
+      if (s.playback.scopeFolderId === undefined) s.playback.scopeFolderId = null;
       if (cancelled) return;
       stateRef.current = s;
       setState(s);
@@ -800,12 +1034,13 @@ function Room({ roomId, role, gmKey, onExit }) {
     };
   }, [roomId]);
 
-  /* ---- 플레이어 생성 ---- */
+  /* ---- 플레이어 생성 (youtube-nocookie로 추적 최소화) ---- */
   useEffect(() => {
     let destroyed = false;
     loadYT().then((YT) => {
       if (destroyed || !containerRef.current) return;
       playerRef.current = new YT.Player(containerRef.current, {
+        host: "https://www.youtube-nocookie.com",
         height: "100%",
         width: "100%",
         playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: role === "gm" ? 1 : 0 },
@@ -860,12 +1095,18 @@ function Room({ roomId, role, gmKey, onExit }) {
 
   /* ---- 재생 제어 (GM) ---- */
   const playTrack = useCallback(
-    (track, atSec = 0) => {
+    (track, atSec = 0, scopeFolderId = null) => {
       const p = playerRef.current;
       if (!p || !track) return;
       lastLoadedVideoIdRef.current = track.videoId;
       p.loadVideoById({ videoId: track.videoId, startSeconds: Math.max(0, atSec) });
-      updatePlayback({ trackId: track.id, isPlaying: true, positionSec: atSec, positionAtMs: Date.now() });
+      updatePlayback({
+        trackId: track.id,
+        isPlaying: true,
+        positionSec: atSec,
+        positionAtMs: Date.now(),
+        scopeFolderId: scopeFolderId,
+      });
     },
     [updatePlayback]
   );
@@ -902,45 +1143,54 @@ function Room({ roomId, role, gmKey, onExit }) {
     [updatePlayback]
   );
 
+  /* 재생 범위(scopeFolderId)에 맞는 트랙 풀 계산 */
+  function getPool() {
+    const { tracks, playback } = stateRef.current;
+    if (!playback.scopeFolderId) return tracks;
+    return tracks.filter((t) => (t.folderId || null) === playback.scopeFolderId);
+  }
+
   const goRelative = useCallback(
     (delta) => {
-      const { tracks, playback } = stateRef.current;
-      if (tracks.length === 0) return;
-      let idx = tracks.findIndex((t) => t.id === playback.trackId);
+      const { playback } = stateRef.current;
+      const pool = getPool();
+      if (pool.length === 0) return;
+      let idx = pool.findIndex((t) => t.id === playback.trackId);
       idx = idx === -1 ? 0 : idx + delta;
-      if (idx < 0) idx = tracks.length - 1;
-      if (idx >= tracks.length) {
+      if (idx < 0) idx = pool.length - 1;
+      if (idx >= pool.length) {
         if (playback.loopMode === "repeatAll") idx = 0;
         else {
           pauseCurrent();
           return;
         }
       }
-      const t = tracks[idx];
+      const t = pool[idx];
       const start = t.timestampLoop?.enabled ? t.timestampLoop.start : 0;
-      playTrack(t, start);
+      playTrack(t, start, playback.scopeFolderId);
     },
     [playTrack, pauseCurrent]
   );
 
   const handleTrackEndedRef = useRef();
   handleTrackEndedRef.current = () => {
-    const { tracks, playback } = stateRef.current;
-    const cur = tracks.find((t) => t.id === playback.trackId);
+    const { playback } = stateRef.current;
+    const pool = getPool();
+    const cur = pool.find((t) => t.id === playback.trackId) || stateRef.current.tracks.find((t) => t.id === playback.trackId);
     if (cur?.timestampLoop?.enabled) {
-      playTrack(cur, cur.timestampLoop.start);
+      playTrack(cur, cur.timestampLoop.start, playback.scopeFolderId);
       return;
     }
     if (playback.loopMode === "repeatOne") {
-      playTrack(cur, 0);
+      playTrack(cur, 0, playback.scopeFolderId);
       return;
     }
     if (playback.loopMode === "repeatAll") {
       goRelative(1);
       return;
     }
-    const idx = tracks.findIndex((t) => t.id === playback.trackId);
-    if (idx >= 0 && idx < tracks.length - 1) {
+    const idx = pool.findIndex((t) => t.id === playback.trackId);
+    if (idx >= 0 && idx < pool.length - 1) {
       goRelative(1);
     } else {
       updatePlayback({ isPlaying: false });
@@ -979,45 +1229,42 @@ function Room({ roomId, role, gmKey, onExit }) {
   }, [role, updatePlayback]);
 
   /* ---- 원격 상태 반영 → 플레이어 (양쪽) ---- */
-  const applyPlaybackToPlayer = useCallback(
-    (playback, tracks) => {
-      const p = playerRef.current;
-      if (!p || !p.getCurrentTime) return;
-      const track = tracks.find((t) => t.id === playback.trackId);
-      if (!track) return;
-      const expected = playback.isPlaying
-        ? playback.positionSec + (Date.now() - playback.positionAtMs) / 1000
-        : playback.positionSec;
+  const applyPlaybackToPlayer = useCallback((playback, tracks) => {
+    const p = playerRef.current;
+    if (!p || !p.getCurrentTime) return;
+    const track = tracks.find((t) => t.id === playback.trackId);
+    if (!track) return;
+    const expected = playback.isPlaying
+      ? playback.positionSec + (Date.now() - playback.positionAtMs) / 1000
+      : playback.positionSec;
 
-      if (lastLoadedVideoIdRef.current !== track.videoId) {
-        lastLoadedVideoIdRef.current = track.videoId;
-        if (joinedRef.current) {
-          p.loadVideoById({ videoId: track.videoId, startSeconds: Math.max(0, expected) });
-          if (!playback.isPlaying) setTimeout(() => { try { p.pauseVideo(); } catch (e) {} }, 500);
-        } else {
-          p.cueVideoById({ videoId: track.videoId, startSeconds: Math.max(0, expected) });
-        }
-        return;
+    if (lastLoadedVideoIdRef.current !== track.videoId) {
+      lastLoadedVideoIdRef.current = track.videoId;
+      if (joinedRef.current) {
+        p.loadVideoById({ videoId: track.videoId, startSeconds: Math.max(0, expected) });
+        if (!playback.isPlaying) setTimeout(() => { try { p.pauseVideo(); } catch (e) {} }, 500);
+      } else {
+        p.cueVideoById({ videoId: track.videoId, startSeconds: Math.max(0, expected) });
       }
-      if (!joinedRef.current) return;
-      let actual = 0;
-      let pstate = -1;
-      try {
-        actual = p.getCurrentTime();
-        pstate = p.getPlayerState();
-      } catch (e) {}
-      if (Math.abs(actual - expected) > 1.5) {
-        p.seekTo(Math.max(0, expected), true);
-      }
-      if (playback.isPlaying && pstate !== 1) {
-        p.playVideo();
-      }
-      if (!playback.isPlaying && pstate === 1) {
-        p.pauseVideo();
-      }
-    },
-    []
-  );
+      return;
+    }
+    if (!joinedRef.current) return;
+    let actual = 0;
+    let pstate = -1;
+    try {
+      actual = p.getCurrentTime();
+      pstate = p.getPlayerState();
+    } catch (e) {}
+    if (Math.abs(actual - expected) > 1.5) {
+      p.seekTo(Math.max(0, expected), true);
+    }
+    if (playback.isPlaying && pstate !== 1) {
+      p.playVideo();
+    }
+    if (!playback.isPlaying && pstate === 1) {
+      p.pauseVideo();
+    }
+  }, []);
 
   useEffect(() => {
     if (!loaded) return;
@@ -1148,41 +1395,54 @@ function GmConsole({
   const [addError, setAddError] = useState("");
   const [adding, setAdding] = useState(false);
   const [newFolder, setNewFolder] = useState("");
-  const [filterFolder, setFilterFolder] = useState("all");
   const [draggingId, setDraggingId] = useState(null);
+  const [dropTargetFolder, setDropTargetFolder] = useState(null);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(state.name);
   const [importMsg, setImportMsg] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [collapsed, setCollapsed] = useState({});
+  const dragTypeRef = useRef(null); // 'track' | 'folder'
   const fileInputRef = useRef(null);
 
   useEffect(() => setNameInput(state.name), [state.name]);
 
   const currentTrack = state.tracks.find((t) => t.id === state.playback.trackId) || null;
 
-  async function handleAddTrack(e) {
-    e.preventDefault();
-    const vid = extractVideoId(urlInput);
-    if (!vid) {
-      setAddError("올바른 유튜브 링크가 아니에요.");
-      return;
-    }
-    setAddError("");
-    setAdding(true);
-    const title = await fetchTitle(vid);
+  async function addTrackRaw(url, description, folderId) {
+    const vid = extractVideoId(url);
+    if (!vid) return { ok: false, error: "올바른 유튜브 링크가 아니에요." };
+    const meta = await fetchYoutubeMeta(vid);
     const track = {
       id: uid(),
       videoId: vid,
-      url: urlInput.trim(),
-      title: title || `영상 (${vid})`,
-      description: descInput.trim(),
-      folderId: filterFolder !== "all" && filterFolder !== "none" ? filterFolder : null,
+      url: url.trim(),
+      title: meta.title || `영상 (${vid})`,
+      channel: meta.channel || "",
+      description: (description || "").trim(),
+      folderId: folderId || null,
       timestampLoop: { enabled: false, start: 0, end: 0 },
     };
     patchState((prev) => ({ ...prev, tracks: [...prev.tracks, track] }));
-    setUrlInput("");
-    setDescInput("");
+    return { ok: true };
+  }
+
+  async function handleAddTrack(e) {
+    e.preventDefault();
+    setAddError("");
+    setAdding(true);
+    const res = await addTrackRaw(urlInput, descInput, null);
+    if (!res.ok) setAddError(res.error);
+    else {
+      setUrlInput("");
+      setDescInput("");
+    }
     setAdding(false);
+  }
+
+  async function handleQuickAdd(folderId, url, description) {
+    const res = await addTrackRaw(url, description, folderId);
+    if (!res.ok) window.alert(res.error);
   }
 
   function addFolder(e) {
@@ -1195,12 +1455,12 @@ function GmConsole({
     patchState((prev) => ({ ...prev, folders: prev.folders.map((f) => (f.id === id ? { ...f, name } : f)) }));
   }
   function deleteFolder(id) {
+    if (!window.confirm("폴더를 삭제할까요? 안의 트랙은 미분류로 이동해요.")) return;
     patchState((prev) => ({
       ...prev,
       folders: prev.folders.filter((f) => f.id !== id),
       tracks: prev.tracks.map((t) => (t.folderId === id ? { ...t, folderId: null } : t)),
     }));
-    if (filterFolder === id) setFilterFolder("all");
   }
   function updateTrack(id, patch) {
     patchState((prev) => ({ ...prev, tracks: prev.tracks.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
@@ -1223,27 +1483,58 @@ function GmConsole({
     }
   }
 
-  function onDragStartRow(e, id) {
-    e.dataTransfer.setData("text/plain", id);
+  function toggleCollapse(folderId) {
+    const key = folderId || "__unassigned__";
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  /* ---- 드래그 앤 드롭 ---- */
+  function handleDragStart(e, type, id) {
+    dragTypeRef.current = type;
+    e.dataTransfer.setData("text/plain", `${type}:${id}`);
     setDraggingId(id);
   }
-  function onDragOverRow(e) {
+  function handleDragOverAny(e) {
     e.preventDefault();
   }
-  function onDropRow(e, targetId) {
+  function parseDrag(e) {
+    const raw = e.dataTransfer.getData("text/plain") || "";
+    const idx = raw.indexOf(":");
+    if (idx < 0) return null;
+    return { type: raw.slice(0, idx), id: raw.slice(idx + 1) };
+  }
+  function handleDropOnHeader(e, folderId) {
     e.preventDefault();
-    const sourceId = e.dataTransfer.getData("text/plain");
+    e.stopPropagation();
+    const drag = parseDrag(e);
     setDraggingId(null);
-    if (!sourceId || sourceId === targetId) return;
-    patchState((prev) => {
-      const tracks = [...prev.tracks];
-      const from = tracks.findIndex((t) => t.id === sourceId);
-      const to = tracks.findIndex((t) => t.id === targetId);
-      if (from < 0 || to < 0) return prev;
-      const [moved] = tracks.splice(from, 1);
-      tracks.splice(to, 0, moved);
-      return { ...prev, tracks };
-    });
+    setDropTargetFolder(null);
+    if (!drag) return;
+    if (drag.type === "track") {
+      patchState((prev) => ({ ...prev, tracks: moveTrack(prev.tracks, drag.id, folderId, null) }));
+    } else if (drag.type === "folder" && folderId) {
+      patchState((prev) => ({ ...prev, folders: moveFolder(prev.folders, drag.id, folderId) }));
+    }
+  }
+  function handleDropOnRow(e, folderId, targetTrackId) {
+    e.preventDefault();
+    e.stopPropagation();
+    const drag = parseDrag(e);
+    setDraggingId(null);
+    if (!drag || drag.type !== "track") return;
+    patchState((prev) => ({ ...prev, tracks: moveTrack(prev.tracks, drag.id, folderId, targetTrackId) }));
+  }
+
+  function handlePlayFolder(folderId, tracksInFolder) {
+    if (tracksInFolder.length === 0) return;
+    const t = tracksInFolder[0];
+    playTrack(t, t.timestampLoop?.enabled ? t.timestampLoop.start : 0, folderId);
+  }
+  function handleLoopFolder(folderId, tracksInFolder) {
+    if (tracksInFolder.length === 0) return;
+    updatePlayback({ loopMode: "repeatAll" });
+    const t = tracksInFolder[0];
+    playTrack(t, t.timestampLoop?.enabled ? t.timestampLoop.start : 0, folderId);
   }
 
   function exportJson() {
@@ -1271,6 +1562,7 @@ function GmConsole({
                 videoId: t.videoId || extractVideoId(t.url || ""),
                 url: t.url || "",
                 title: t.title || "제목 없음",
+                channel: t.channel || "",
                 description: t.description || "",
                 folderId: t.folderId || null,
                 timestampLoop: t.timestampLoop || { enabled: false, start: 0, end: 0 },
@@ -1287,20 +1579,8 @@ function GmConsole({
     reader.readAsText(file);
   }
 
-  const displayedTracks = state.tracks.filter((t) => {
-    if (filterFolder === "all") return true;
-    if (filterFolder === "none") return !t.folderId;
-    return t.folderId === filterFolder;
-  });
-
-  const getLiveTime = () => {
-    const p = containerRef.current;
-    try {
-      return p && p._ytPlayerRef ? p._ytPlayerRef.getCurrentTime() : elapsed;
-    } catch (e) {
-      return elapsed;
-    }
-  };
+  const unassigned = state.tracks.filter((t) => !t.folderId);
+  const groups = [{ folder: null, tracks: unassigned }, ...state.folders.map((f) => ({ folder: f, tracks: state.tracks.filter((t) => t.folderId === f.id) }))];
 
   return (
     <div className="bgm-app" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -1351,10 +1631,10 @@ function GmConsole({
         {/* 사이드바 */}
         <aside
           className="gm-sidebar scrollarea"
-          style={{ width: 380, borderRight: "1px solid var(--border)", padding: 18, overflowY: "auto", maxHeight: "calc(100vh - 60px)" }}
+          style={{ width: 400, borderRight: "1px solid var(--border)", padding: 18, overflowY: "auto", maxHeight: "calc(100vh - 60px)" }}
         >
           <form onSubmit={handleAddTrack} className="card" style={{ padding: 14, marginBottom: 16 }}>
-            <div className="label-eyebrow" style={{ marginBottom: 8 }}>트랙 추가</div>
+            <div className="label-eyebrow" style={{ marginBottom: 8 }}>트랙 추가 (미분류로 들어가요)</div>
             <input
               className="input"
               placeholder="유튜브 링크 붙여넣기"
@@ -1375,74 +1655,50 @@ function GmConsole({
             </button>
           </form>
 
-          <div style={{ marginBottom: 14 }}>
-            <div className="label-eyebrow" style={{ marginBottom: 8 }}>폴더</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-              <button className={"folder-chip" + (filterFolder === "all" ? " active" : "")} onClick={() => setFilterFolder("all")}>
-                전체 {state.tracks.length}
-              </button>
-              <button className={"folder-chip" + (filterFolder === "none" ? " active" : "")} onClick={() => setFilterFolder("none")}>
-                미분류
-              </button>
-              {state.folders.map((f) => (
-                <button
-                  key={f.id}
-                  className={"folder-chip" + (filterFolder === f.id ? " active" : "")}
-                  onClick={() => setFilterFolder(f.id)}
-                  onDoubleClick={() => {
-                    const name = window.prompt("폴더 이름 수정", f.name);
-                    if (name) renameFolder(f.id, name);
-                  }}
-                  title="더블클릭: 이름 수정"
-                >
-                  {f.name}
-                </button>
-              ))}
-            </div>
-            <form onSubmit={addFolder} style={{ display: "flex", gap: 6 }}>
-              <input className="input" placeholder="새 폴더 이름" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} style={{ fontSize: 12 }} />
-              <button className="btn" type="submit" style={{ fontSize: 12 }}>추가</button>
-              {filterFolder !== "all" && filterFolder !== "none" && (
-                <button type="button" className="btn btn-danger" style={{ fontSize: 12 }} onClick={() => deleteFolder(filterFolder)}>
-                  폴더삭제
-                </button>
-              )}
-            </form>
-          </div>
+          <form onSubmit={addFolder} style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+            <input className="input" placeholder="새 폴더 이름 (예: 1일차)" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} style={{ fontSize: 12 }} />
+            <button className="btn" type="submit" style={{ fontSize: 12 }}>+ 폴더</button>
+          </form>
 
           <div className="label-eyebrow" style={{ marginBottom: 8 }}>
-            재생목록 {filterFolder !== "all" && <span>(순서 변경은 전체 보기에서만 가능해요)</span>}
+            재생목록 · 트랙 {state.tracks.length} · 폴더는 드래그로 순서를, 트랙은 드래그로 폴더 이동/순서를 바꿀 수 있어요
           </div>
-          <div>
-            {displayedTracks.length === 0 && (
-              <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "12px 4px" }}>표시할 트랙이 없어요.</div>
-            )}
-            {displayedTracks.map((t) => (
-              <TrackRow
-                key={t.id}
-                track={t}
-                isCurrent={state.playback.trackId === t.id}
-                isPlaying={state.playback.isPlaying}
-                folders={state.folders}
-                draggable={filterFolder === "all"}
-                dragging={draggingId === t.id}
-                onDragStart={onDragStartRow}
-                onDragOver={onDragOverRow}
-                onDrop={onDropRow}
-                onPlay={(track) => {
-                  if (state.playback.trackId === track.id) {
-                    state.playback.isPlaying ? pauseCurrent() : resumeCurrent();
-                  } else {
-                    const start = track.timestampLoop?.enabled ? track.timestampLoop.start : 0;
-                    playTrack(track, start);
-                  }
-                }}
-                onUpdate={updateTrack}
-                onDelete={deleteTrack}
-                getLiveTime={() => elapsed}
-              />
-            ))}
-          </div>
+
+          {groups.map(({ folder, tracks }) => (
+            <FolderSection
+              key={folder ? folder.id : "__unassigned__"}
+              folder={folder}
+              tracksInFolder={tracks}
+              allFolders={state.folders}
+              collapsed={!!collapsed[folder ? folder.id : "__unassigned__"]}
+              onToggleCollapse={toggleCollapse}
+              isDropTarget={dropTargetFolder === (folder ? folder.id : null)}
+              currentTrackId={state.playback.trackId}
+              isPlaying={state.playback.isPlaying}
+              scopeFolderId={state.playback.scopeFolderId}
+              onDragStart={handleDragStart}
+              onDragOverAny={handleDragOverAny}
+              onDropOnHeader={handleDropOnHeader}
+              onDropOnRow={handleDropOnRow}
+              draggingId={draggingId}
+              onPlayTrack={(track) => {
+                if (state.playback.trackId === track.id) {
+                  state.playback.isPlaying ? pauseCurrent() : resumeCurrent();
+                } else {
+                  const start = track.timestampLoop?.enabled ? track.timestampLoop.start : 0;
+                  playTrack(track, start, null);
+                }
+              }}
+              onPlayFolder={handlePlayFolder}
+              onLoopFolder={handleLoopFolder}
+              onRename={renameFolder}
+              onDelete={deleteFolder}
+              onQuickAdd={handleQuickAdd}
+              onUpdateTrack={updateTrack}
+              onDeleteTrack={deleteTrack}
+              getLiveTime={() => elapsed}
+            />
+          ))}
 
           <hr className="divider" style={{ margin: "16px 0" }} />
           <div style={{ display: "flex", gap: 8 }}>
@@ -1476,6 +1732,9 @@ function GmConsole({
                 <div className="font-display" style={{ fontSize: 18, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {currentTrack ? currentTrack.title : "재생할 트랙을 선택하세요"}
                 </div>
+                {currentTrack?.channel && (
+                  <div style={{ fontSize: 11.5, color: "var(--text-faint)" }}>{currentTrack.channel}</div>
+                )}
                 {currentTrack?.description && (
                   <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 2 }}>“{currentTrack.description}”</div>
                 )}
@@ -1499,7 +1758,7 @@ function GmConsole({
               </div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 14 }}>
               <button className="btn btn-icon" onClick={() => goRelative(-1)} disabled={!state.tracks.length} title="이전 트랙">⏮</button>
               <button
                 className="btn btn-brass btn-icon"
@@ -1515,6 +1774,17 @@ function GmConsole({
               </button>
               <button className="btn btn-icon" onClick={() => goRelative(1)} disabled={!state.tracks.length} title="다음 트랙">⏭</button>
             </div>
+
+            {state.playback.scopeFolderId && (
+              <div style={{ textAlign: "center", marginBottom: 14 }}>
+                <span className="folder-chip active" style={{ cursor: "default" }}>
+                  재생 범위: {state.folders.find((f) => f.id === state.playback.scopeFolderId)?.name || "폴더"}
+                </span>{" "}
+                <button className="btn btn-ghost btn-tiny" onClick={() => updatePlayback({ scopeFolderId: null })}>
+                  전체로 해제
+                </button>
+              </div>
+            )}
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 6 }}>
