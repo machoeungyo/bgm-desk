@@ -527,7 +527,9 @@ function Home({ onEnterRoom }) {
             세션 브금 데크
           </h1>
           <p style={{ color: "var(--text-dim)", marginTop: 10, fontSize: 14, lineHeight: 1.6, maxWidth: 560 }}>
-            룸을 만들어 유튜브 링크로 재생목록을 꾸리고, GM이 재생·정지하면 플레이어 전원에게 실시간으로 맞춰 흘러가요.
+            룸을 만들어 유튜브 링크로 재생목록을 꾸리고,
+            <br />
+            GM이 재생·정지하면 플레이어 전원에게 실시간으로 맞춰 흘러가요.
           </p>
         </div>
 
@@ -766,7 +768,7 @@ function TrackRowWithPanel(props) {
             {track.title}
           </div>
           {track.channel && <div className="track-channel">{track.channel}</div>}
-          {track.description && <div className="track-desc">“{track.description}”</div>}
+          {track.description && <div className="track-desc">{track.description}</div>}
           {track.timestampLoop?.enabled && (
             <div className="font-mono" style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>
               구간반복 {formatTime(track.timestampLoop.start)}–{formatTime(track.timestampLoop.end)}
@@ -1024,6 +1026,18 @@ function Room({ roomId, role, gmKey, onExit }) {
   const playerRef = useRef(null);
   const lastLoadedVideoIdRef = useRef(null);
   const joinedRef = useRef(role === "gm");
+  const playerReadyRef = useRef(false);
+  const readyWaitersRef = useRef([]);
+
+  /* 플레이어가 실제로 onReady된 뒤에만 명령을 실행하도록 대기시킨다.
+     (loadVideoById 등을 onReady 이전에 호출하면 조용히 무시되어
+     "재생 버튼을 눌러도 아무 일도 안 일어나는" 문제가 생길 수 있다) */
+  const ensurePlayerReady = useCallback(() => {
+    if (playerReadyRef.current && playerRef.current) return Promise.resolve(playerRef.current);
+    return new Promise((resolve) => {
+      readyWaitersRef.current.push(resolve);
+    });
+  }, []);
 
   useEffect(() => {
     joinedRef.current = joined;
@@ -1050,6 +1064,8 @@ function Room({ roomId, role, gmKey, onExit }) {
   /* ---- 플레이어 생성 ---- */
   useEffect(() => {
     let destroyed = false;
+    playerReadyRef.current = false;
+    setPlayerReady(false);
     loadYT().then((YT) => {
       if (destroyed || !containerRef.current) return;
       playerRef.current = new YT.Player(containerRef.current, {
@@ -1067,7 +1083,11 @@ function Room({ roomId, role, gmKey, onExit }) {
             if (destroyed) return;
             e.target.setVolume(volume);
             if (role === "pl") e.target.mute();
+            playerReadyRef.current = true;
             setPlayerReady(true);
+            const waiters = readyWaitersRef.current;
+            readyWaitersRef.current = [];
+            waiters.forEach((resolve) => resolve(e.target));
           },
           onStateChange: (e) => {
             if (role === "gm") handleGmStateChangeRef.current(e);
@@ -1114,10 +1134,8 @@ function Room({ roomId, role, gmKey, onExit }) {
   /* ---- 재생 제어 (GM) ---- */
   const playTrack = useCallback(
     (track, atSec = 0, scopeFolderId = null) => {
-      const p = playerRef.current;
-      if (!p || !track) return;
+      if (!track) return;
       lastLoadedVideoIdRef.current = track.videoId;
-      p.loadVideoById({ videoId: track.videoId, startSeconds: Math.max(0, atSec) });
       updatePlayback({
         trackId: track.id,
         isPlaying: true,
@@ -1125,40 +1143,47 @@ function Room({ roomId, role, gmKey, onExit }) {
         positionAtMs: Date.now(),
         scopeFolderId: scopeFolderId,
       });
+      ensurePlayerReady().then((p) => {
+        if (!p) return;
+        p.loadVideoById({ videoId: track.videoId, startSeconds: Math.max(0, atSec) });
+      });
     },
-    [updatePlayback]
+    [updatePlayback, ensurePlayerReady]
   );
 
   const pauseCurrent = useCallback(() => {
-    const p = playerRef.current;
-    if (!p) return;
-    let pos = stateRef.current.playback.positionSec;
-    try {
-      pos = p.getCurrentTime();
-    } catch (e) {}
-    p.pauseVideo();
-    updatePlayback({ isPlaying: false, positionSec: pos, positionAtMs: Date.now() });
-  }, [updatePlayback]);
+    ensurePlayerReady().then((p) => {
+      if (!p) return;
+      let pos = stateRef.current.playback.positionSec;
+      try {
+        pos = p.getCurrentTime();
+      } catch (e) {}
+      p.pauseVideo();
+      updatePlayback({ isPlaying: false, positionSec: pos, positionAtMs: Date.now() });
+    });
+  }, [updatePlayback, ensurePlayerReady]);
 
   const resumeCurrent = useCallback(() => {
-    const p = playerRef.current;
-    if (!p) return;
-    p.playVideo();
-    let pos = stateRef.current.playback.positionSec;
-    try {
-      pos = p.getCurrentTime();
-    } catch (e) {}
-    updatePlayback({ isPlaying: true, positionSec: pos, positionAtMs: Date.now() });
-  }, [updatePlayback]);
+    ensurePlayerReady().then((p) => {
+      if (!p) return;
+      p.playVideo();
+      let pos = stateRef.current.playback.positionSec;
+      try {
+        pos = p.getCurrentTime();
+      } catch (e) {}
+      updatePlayback({ isPlaying: true, positionSec: pos, positionAtMs: Date.now() });
+    });
+  }, [updatePlayback, ensurePlayerReady]);
 
   const seekCurrent = useCallback(
     (sec) => {
-      const p = playerRef.current;
-      if (!p) return;
-      p.seekTo(sec, true);
-      updatePlayback({ positionSec: sec, positionAtMs: Date.now() });
+      ensurePlayerReady().then((p) => {
+        if (!p) return;
+        p.seekTo(sec, true);
+        updatePlayback({ positionSec: sec, positionAtMs: Date.now() });
+      });
     },
-    [updatePlayback]
+    [updatePlayback, ensurePlayerReady]
   );
 
   /* 재생 범위(scopeFolderId)에 맞는 트랙 풀 계산 */
@@ -1228,7 +1253,7 @@ function Room({ roomId, role, gmKey, onExit }) {
     if (role !== "gm") return;
     const iv = setInterval(() => {
       const p = playerRef.current;
-      if (!p || !p.getCurrentTime) return;
+      if (!playerReadyRef.current || !p || !p.getCurrentTime) return;
       const { tracks, playback } = stateRef.current;
       if (!playback.isPlaying) return;
       const cur = tracks.find((t) => t.id === playback.trackId);
@@ -1249,7 +1274,7 @@ function Room({ roomId, role, gmKey, onExit }) {
   /* ---- 원격 상태 반영 → 플레이어 (양쪽) ---- */
   const applyPlaybackToPlayer = useCallback((playback, tracks) => {
     const p = playerRef.current;
-    if (!p || !p.getCurrentTime) return;
+    if (!playerReadyRef.current || !p || !p.getCurrentTime) return;
     const track = tracks.find((t) => t.id === playback.trackId);
     if (!track) return;
     const expected = playback.isPlaying
@@ -1418,7 +1443,7 @@ function GmConsole({
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(state.name);
   const [importMsg, setImportMsg] = useState("");
-  const [showKey, setShowKey] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
   const [collapsed, setCollapsed] = useState({});
   const dragTypeRef = useRef(null); // 'track' | 'folder'
   const fileInputRef = useRef(null);
@@ -1639,8 +1664,17 @@ function GmConsole({
           <span className="label-eyebrow" style={{ background: "var(--surface)", padding: "3px 8px", borderRadius: 999 }}>GM</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={() => setShowKey((v) => !v)}>
-            {showKey ? gmKey : "GM 키 보기"}
+          <button
+            className="btn btn-ghost font-mono"
+            style={{ fontSize: 12, letterSpacing: "0.08em" }}
+            title="클릭하면 복사돼요"
+            onClick={() => {
+              navigator.clipboard?.writeText(gmKey || "").catch(() => {});
+              setKeyCopied(true);
+              setTimeout(() => setKeyCopied(false), 1500);
+            }}
+          >
+            {keyCopied ? "복사됨 ✓" : `GM 키 · ${gmKey}`}
           </button>
         </div>
       </header>
@@ -1754,7 +1788,7 @@ function GmConsole({
                   <div style={{ fontSize: 11.5, color: "var(--text-faint)" }}>{currentTrack.channel}</div>
                 )}
                 {currentTrack?.description && (
-                  <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 2 }}>“{currentTrack.description}”</div>
+                  <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 2 }}>{currentTrack.description}</div>
                 )}
               </div>
             </div>
