@@ -524,7 +524,7 @@ function Home({ onEnterRoom }) {
         <div style={{ marginBottom: 40 }}>
           <div className="label-eyebrow" style={{ marginBottom: 8 }}>SESSION BOARD</div>
           <h1 className="font-display" style={{ fontSize: 40, fontWeight: 700, margin: 0, lineHeight: 1.15 }}>
-            세션 브금 데크
+            세션 브금 데스크
           </h1>
           <p style={{ color: "var(--text-dim)", marginTop: 10, fontSize: 14, lineHeight: 1.6, maxWidth: 560 }}>
             룸을 만들어 유튜브 링크로 재생목록을 꾸리고,
@@ -1686,7 +1686,7 @@ function GmConsole({
           style={{ width: 400, borderRight: "1px solid var(--border)", padding: 18, overflowY: "auto", maxHeight: "calc(100vh - 60px)" }}
         >
           <form onSubmit={handleAddTrack} className="card" style={{ padding: 14, marginBottom: 16 }}>
-            <div className="label-eyebrow" style={{ marginBottom: 8 }}>트랙 추가 (미분류로 들어가요)</div>
+            <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>트랙 추가 (미분류로 들어가요)</div>
             <input
               className="input"
               placeholder="유튜브 링크 붙여넣기"
@@ -1712,7 +1712,7 @@ function GmConsole({
             <button className="btn" type="submit" style={{ fontSize: 12 }}>+ 폴더</button>
           </form>
 
-          <div className="label-eyebrow" style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>
             재생목록 · 트랙 {state.tracks.length} · 폴더는 드래그로 순서를, 트랙은 드래그로 폴더 이동/순서를 바꿀 수 있어요
           </div>
 
@@ -1918,9 +1918,12 @@ function PlView({ state, containerRef, joined, onJoin, elapsed, duration, volume
             <div className="label-eyebrow" style={{ marginBottom: 4 }}>
               {state.playback.isPlaying ? "재생 중" : currentTrack ? "일시정지" : "대기 중"}
             </div>
-            <div className="font-display" style={{ fontSize: 17, fontWeight: 600 }}>
-              {currentTrack ? (currentTrack.description || "지금 흐르는 곡") : "GM이 트랙을 선택하길 기다리는 중…"}
+            <div className="font-display" style={{ fontSize: 17, fontWeight: 700 }}>
+              {currentTrack ? currentTrack.title : "GM이 트랙을 선택하길 기다리는 중…"}
             </div>
+            {currentTrack?.description && (
+              <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 3 }}>{currentTrack.description}</div>
+            )}
           </div>
         </div>
 
@@ -1941,7 +1944,7 @@ function PlView({ state, containerRef, joined, onJoin, elapsed, duration, volume
         </div>
 
         <div style={{ marginTop: 30, fontSize: 11, color: "var(--text-faint)", textAlign: "center", lineHeight: 1.6 }}>
-          재생목록과 트랙 상세 정보는 GM에게만 보여요.
+          전체 재생목록과 폴더 구성은 GM에게만 보여요.
         </div>
       </main>
     </div>
