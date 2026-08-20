@@ -188,36 +188,37 @@ function loadYT() {
 function GlobalStyle() {
   return (
     <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+      @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@1.3.9/dist/web/static/pretendard.css');
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 
       .bgm-app {
-        --bg: #15130E;
-        --bg-elevated: #1D1911;
-        --surface: #241F17;
-        --surface-hover: #2C261B;
-        --border: #3A3327;
-        --brass: #C6963C;
-        --brass-bright: #E8B75E;
-        --ember: #B1502E;
-        --good: #7A9A5C;
-        --text: #EDE3CF;
-        --text-dim: #A79A83;
-        --text-faint: #6E6353;
-        font-family: 'Inter', sans-serif;
-        background: radial-gradient(1200px 800px at 20% -10%, #221C13 0%, var(--bg) 55%);
+        --bg: #FFFFFF;
+        --bg-elevated: #FAFAFA;
+        --surface: #F5F5F4;
+        --surface-hover: #ECECEA;
+        --border: #E4E4E1;
+        --brass: #171717;
+        --brass-bright: #000000;
+        --ember: #DC2626;
+        --good: #16A34A;
+        --text: #171717;
+        --text-dim: #6B6B68;
+        --text-faint: #9C9C97;
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+        background: radial-gradient(1400px 900px at 18% -10%, #FAFAFA 0%, var(--bg) 55%);
         color: var(--text);
         min-height: 100vh;
         width: 100%;
         box-sizing: border-box;
       }
       .bgm-app *, .bgm-app *::before, .bgm-app *::after { box-sizing: border-box; }
-      .bgm-app .font-display { font-family: 'Fraunces', Georgia, serif; }
+      .bgm-app .font-display { font-family: 'Pretendard', sans-serif; font-weight: 800; letter-spacing: -0.02em; }
       .bgm-app .font-mono { font-family: 'JetBrains Mono', monospace; }
 
-      .bgm-app ::selection { background: var(--brass); color: #17130B; }
+      .bgm-app ::selection { background: var(--brass); color: #FFFFFF; }
 
       .bgm-app .btn {
-        font-family: 'Inter', sans-serif;
+        font-family: 'Pretendard', sans-serif;
         font-size: 13px;
         font-weight: 600;
         letter-spacing: .01em;
@@ -235,17 +236,17 @@ function GlobalStyle() {
       .bgm-app .btn:hover { background: var(--surface-hover); border-color: var(--brass); }
       .bgm-app .btn:active { transform: translateY(1px); }
       .bgm-app .btn:disabled { opacity: .4; cursor: not-allowed; }
-      .bgm-app .btn-brass { background: var(--brass); border-color: var(--brass); color: #1B1206; }
+      .bgm-app .btn-brass { background: var(--brass); border-color: var(--brass); color: #FFFFFF; }
       .bgm-app .btn-brass:hover { background: var(--brass-bright); border-color: var(--brass-bright); }
       .bgm-app .btn-ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
       .bgm-app .btn-ghost:hover { background: var(--surface); color: var(--text); }
-      .bgm-app .btn-danger { color: #D98466; border-color: #4A2A1E; }
-      .bgm-app .btn-danger:hover { background: #2A180F; border-color: var(--ember); }
+      .bgm-app .btn-danger { color: #B91C1C; border-color: #F3D2D2; }
+      .bgm-app .btn-danger:hover { background: #FEF2F2; border-color: var(--ember); }
       .bgm-app .btn-icon { padding: 8px; }
       .bgm-app .btn-tiny { font-size: 11px; padding: 4px 7px; border-radius: 6px; }
 
       .bgm-app .input, .bgm-app select.input {
-        font-family: 'Inter', sans-serif;
+        font-family: 'Pretendard', sans-serif;
         font-size: 13px;
         background: var(--bg-elevated);
         border: 1px solid var(--border);
@@ -313,7 +314,7 @@ function GlobalStyle() {
         transition: border-color .15s, background .15s, opacity .15s;
       }
       .bgm-app .track-row:hover { border-color: var(--brass); }
-      .bgm-app .track-row.active { border-color: var(--brass); background: #2A2213; }
+      .bgm-app .track-row.active { border-color: var(--brass); background: #F2F2F0; }
       .bgm-app .track-row.dragging { opacity: .3; }
       .bgm-app .drag-handle { cursor: grab; color: var(--text-faint); font-size: 12px; flex-shrink: 0; padding-top: 2px; }
       .bgm-app .drag-handle:active { cursor: grabbing; }
@@ -354,7 +355,7 @@ function GlobalStyle() {
         cursor: pointer;
         white-space: nowrap;
       }
-      .bgm-app .folder-chip.active { background: var(--brass); border-color: var(--brass); color: #1B1206; }
+      .bgm-app .folder-chip.active { background: var(--brass); border-color: var(--brass); color: #FFFFFF; }
       .bgm-app .folder-chip:hover:not(.active) { border-color: var(--brass); color: var(--text); }
 
       .bgm-app .badge-live {
@@ -374,7 +375,7 @@ function GlobalStyle() {
         -webkit-appearance: none; appearance: none;
         width: 13px; height: 13px; border-radius: 50%;
         background: var(--brass-bright); cursor: pointer; margin-top: -4.5px;
-        box-shadow: 0 0 0 3px rgba(198,150,60,.18);
+        box-shadow: 0 0 0 3px rgba(0,0,0,.14);
       }
       .bgm-app .seekbar::-moz-range-thumb {
         width: 13px; height: 13px; border-radius: 50%; border: none;
@@ -388,13 +389,13 @@ function GlobalStyle() {
       .bgm-app .progress-fill { height: 100%; background: var(--brass); transition: width .3s linear; }
 
       .bgm-app .reel-wrap svg { display: block; transition: filter .4s; }
-      .bgm-app .reel-wrap.spinning svg { animation: bgm-spin 3.4s linear infinite; filter: drop-shadow(0 0 14px rgba(198,150,60,.5)); }
+      .bgm-app .reel-wrap.spinning svg { animation: bgm-spin 3.4s linear infinite; filter: drop-shadow(0 0 14px rgba(0,0,0,.22)); }
       @keyframes bgm-spin { to { transform: rotate(360deg); } }
 
       .bgm-app .yt-box { border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--border); }
 
       .bgm-app .join-overlay {
-        position: absolute; inset: 0; background: rgba(21,19,14,.86);
+        position: absolute; inset: 0; background: rgba(255,255,255,.92);
         display: flex; align-items: center; justify-content: center; border-radius: 14px; z-index: 5;
       }
 
@@ -418,23 +419,35 @@ function GlobalStyle() {
    릴(Reel) 인디케이터 — 시그니처 비주얼
    ============================================================ */
 
+let __reelGradId = 0;
 function Reel({ playing, size = 108 }) {
-  const ticks = Array.from({ length: 18 });
+  const idRef = useRef(null);
+  if (idRef.current === null) idRef.current = `reelGrad${__reelGradId++}`;
+  const gid = idRef.current;
+  const grooves = [44, 39.5, 35, 30.5, 26, 21.5];
   return (
     <div className={"reel-wrap" + (playing ? " spinning" : "")} style={{ width: size, height: size, flexShrink: 0 }}>
       <svg viewBox="0 0 100 100" width={size} height={size}>
-        <circle cx="50" cy="50" r="47" fill="none" stroke="var(--border)" strokeWidth="1.5" />
-        <circle cx="50" cy="50" r="39" fill="var(--bg-elevated)" stroke="var(--brass)" strokeWidth="1.4" />
-        {ticks.map((_, i) => {
-          const angle = (i / ticks.length) * Math.PI * 2;
-          const x1 = 50 + Math.cos(angle) * 31;
-          const y1 = 50 + Math.sin(angle) * 31;
-          const x2 = 50 + Math.cos(angle) * 38;
-          const y2 = 50 + Math.sin(angle) * 38;
-          return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--border)" strokeWidth="1.2" />;
-        })}
-        <circle cx="50" cy="50" r="11" fill="var(--brass)" />
-        <circle cx="50" cy="50" r="3.2" fill="var(--bg)" />
+        <defs>
+          <radialGradient id={gid} cx="38%" cy="32%" r="75%">
+            <stop offset="0%" stopColor="#4A4A4A" />
+            <stop offset="35%" stopColor="#161616" />
+            <stop offset="100%" stopColor="#000000" />
+          </radialGradient>
+        </defs>
+        {/* 디스크 본체 */}
+        <circle cx="50" cy="50" r="48" fill={`url(#${gid})`} />
+        {/* 그루브(홈) */}
+        {grooves.map((r, i) => (
+          <circle key={i} cx="50" cy="50" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="0.6" />
+        ))}
+        {/* 광택 하이라이트 */}
+        <path d="M 20 22 A 40 40 0 0 1 60 14" fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="5" strokeLinecap="round" />
+        {/* 라벨 링 */}
+        <circle cx="50" cy="50" r="16" fill="#EDEDEC" />
+        <circle cx="50" cy="50" r="16" fill="none" stroke="#0000001a" strokeWidth="0.8" />
+        {/* 중심 홀 */}
+        <circle cx="50" cy="50" r="4" fill="#000000" />
       </svg>
     </div>
   );
@@ -521,7 +534,7 @@ function Home({ onEnterRoom }) {
         {createdInfo && (
           <div
             className="card"
-            style={{ padding: 18, marginBottom: 28, borderColor: "var(--brass)", background: "#241C10" }}
+            style={{ padding: 18, marginBottom: 28, borderColor: "var(--brass)", background: "var(--surface)" }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
               <div>
@@ -1034,16 +1047,21 @@ function Room({ roomId, role, gmKey, onExit }) {
     };
   }, [roomId]);
 
-  /* ---- 플레이어 생성 (youtube-nocookie로 추적 최소화) ---- */
+  /* ---- 플레이어 생성 ---- */
   useEffect(() => {
     let destroyed = false;
     loadYT().then((YT) => {
       if (destroyed || !containerRef.current) return;
       playerRef.current = new YT.Player(containerRef.current, {
-        host: "https://www.youtube-nocookie.com",
         height: "100%",
         width: "100%",
-        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: role === "gm" ? 1 : 0 },
+        playerVars: {
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          controls: role === "gm" ? 1 : 0,
+          origin: typeof window !== "undefined" ? window.location.origin : undefined,
+        },
         events: {
           onReady: (e) => {
             if (destroyed) return;
